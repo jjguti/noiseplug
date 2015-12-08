@@ -4,11 +4,11 @@
 
 all: flash
 
-noiseplug.o: noiseplug.S
-	avr-gcc -Os -nostdlib -mmcu=attiny9 -o $@ -c $<
+noiseplug.o: noiseplug.s
+	avr-gcc -Os -nostdlib -mmcu=attiny13 -o $@ -c $<
 
 noiseplug.elf: noiseplug.o
-	avr-gcc -Os -nostdlib -mmcu=attiny9 -o $@ $<
+	avr-gcc -Os -nostdlib -mmcu=attiny13 -o $@ $<
 
 noiseplug.hex: noiseplug.elf
 	avr-objcopy -O ihex $< $@

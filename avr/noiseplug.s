@@ -5,21 +5,16 @@
 .global __vectors
 
 SREG = 0x3F
-SPH = 0x3E
 SPL = 0x3D
-CCP = 0x3C
-SMCR = 0x3A
-CLKPSR = 0x36
-TCCR0A = 0x2E
-TCCR0B = 0x2D
-TCCR0C = 0x2C
-TIMSK0 = 0x2B
-TIFR0 = 0x2A
-OCR0AL = 0x26
-PUEB = 0x03
-PORTB = 0x02
-DDRB = 0x01
-PINB = 0x00
+TIMSK0 = 0x39
+TIFR0 = 0x38
+OCR0A = 0x36
+MCUCR = 0x35
+TCCR0B = 0x33
+TCCR0A = 0x2F
+CLKPS = 0x26
+PORTB = 0x18
+DDRB = 0x17
 
 LEADSIZE = 174
 LEADINIT1 = 1601
@@ -43,40 +38,48 @@ LEADINIT2 = 3571
 
 __vectors:
 NULL:
-	clr r16
-	ldi r17, 0xD8
-	out PUEB, r16
+	; this next three instructions of the code are sitting
+	; in the place of the vectors for interrupts 0, 1 and 2
+	; it doesn't matter because we are only using interrupt 3
+	ldi r30, 0x60
+	ldi r18, LEADSIZE
 	rjmp main_cont
-	
-	.type	__vector_4, @function
-__vector_4:
+
+	.type	__vector_3, @function
+__vector_3:
 	push r16
 	in r16, SREG
 	push r16
 	lds r16,int_ctr
 	subi r16, -1
-	andi r16, 3
+	cpi r16, 5  ; count up to 5, not 4
+	brne no_overflow
+	ldi r16, 0
+no_overflow:
 	sts int_ctr, r16
 	pop r16
 	out SREG, r16
 	pop r16
 	reti
-	.size	__vector_4, .-__vector_4
-	
+	.size	__vector_3, .-__vector_3
+
 main_cont:
-	clr r31
-	ldi r30, 0x40
-	
-clear_sram:
-	st Z+, r16
-	sbrs r30, 5
-	rjmp clear_sram
 
-	ldi r18, 0x5F
-	out SPL, r18
-	out SPH, r16
+	; this is not really needed, but enable if it makes you feel better
+	;clr r16
+;clear_sram:
+;	st Z+, r16
+;	ldi r19, 0x9F
+;	cpse r30, r19
+;	rjmp clear_sram
 
-	ldi r18, LEADSIZE
+	; the stack is automatically set up by the attiny13, but
+	; this next two lines do it if you still want to do it
+	; note that the attiny13 doesn't have a SPH, since it doesn't
+	; have that much memory anyway
+	;ldi r18, 0x9F
+	;out SPL, r18
+
 	sts lead1, r18
 	sts lead2, r18
 	sts lead3, r18
@@ -89,24 +92,39 @@ clear_sram:
 	ldi r18, lo8(LEADINIT2)
 	sts lead3 + 3, r18
 
-	out CCP, r17
-	out CLKPSR, r16
+	; set clock divisor = 1, ~9mhz
+	ldi r17, 128
+	ldi r16, 0
+	out CLKPS, r17
+	out CLKPS, r16
+
+	; set portb0 and portb3 as output pins
 	ldi r17, 5
 	out DDRB, r17
-	ldi r17, 0x81
+	out PORTB, r16
+
+	; set pwm to fast pwm
+	ldi r17, 0x83
 	out TCCR0A, r17
-	ldi r17, 0x09
+	ldi r17, 0x01
 	out TCCR0B, r17
-	ldi r17, 1
-	out SMCR, r17
+
+	; enable sleep, idle mode and disable pullups
+	ldi r17, 96
+	out MCUCR, r17
+
+	; set interrupts
+	ldi r17, 2
 	out TIMSK0, r17
+
+	; enable interrupts
 	sei
 	out TIFR0, r17
 
 	; YH and ZH never change
-	ldi r31, hi8(bassline+0x4000)
+	ldi r31, hi8(notes)
 	clr r29
-	
+
 	; init i
 	clr r17
 	clr r18
@@ -157,11 +175,11 @@ norestart:
 	; note = notes[bassline[bassptr]]
 	ldi r30, lo8(bassline)
 	add r30, r20
-	ld r20, Z
+	lpm r20, Z
 	ldi r30, lo8(notes)
 	add r30, r20
-	ld r21, Z+
-	ld r20, Z
+	lpm r21, Z+
+	lpm r20, Z
 	
 	; if (bassbeat[(i >> 10) & 7]): note <<= 1
 	mov r22, r18
@@ -170,7 +188,7 @@ norestart:
 	andi r22, 7
 	ldi r30, lo8(bassbeat)
 	add r30, r22
-	ld r22, Z
+	lpm r22, Z
 	tst r22				; assuming this resets C
 	breq nobassbeat
 	rol r21
@@ -219,7 +237,7 @@ noaddbass:
 	; arpptr(r30) = arpseq1[arpseq2[i >> 16]][(i >> 14) & 3]
 	mov r30, r17
 	subi r30, lo8(NULL-arpseq2)
-	ld r30, Z
+	lpm r30, Z
 	lsl r30
 	lsl r30
 	mov r20, r18
@@ -229,12 +247,12 @@ noaddbass:
 	andi r20, 3
 	or r30, r20
 	subi r30, lo8(NULL-arpseq1)
-	ld r30, Z
-	
+	lpm r30, Z
+
 	; if (!(i & (1 << 13))): arpptr >>= 14
 	sbrs r18, 5
 	swap r30
-	
+
 	; arpptr = arpeggio[arpptr & 0xF][(i >> 8) & 1]
 	andi r30, 0xF
 	lsl r30
@@ -242,19 +260,19 @@ noaddbass:
 	andi r20, 1
 	or r30, r20
 	subi r30, lo8(NULL-arpeggio)
-	ld r30, Z
-	
+	lpm r30, Z
+
 	; if (!(i & 0x80)): arpptr >>= 14
 	sbrs r19, 7
 	swap r30
-	
+
 	; note = arpnotes[arpptr & 0xF]
 	andi r30, 0xF
 	lsl r30
 	subi r30, lo8(NULL-arpnotes)
-	ld r21, Z+
-	ld r20, Z
-	
+	lpm r21, Z+
+	lpm r20, Z
+
 	; arp_osc += note
 	lds r22, arposc
 	lds r23, arposc + 1
@@ -262,7 +280,7 @@ noaddbass:
 	adc r22, r20	
 	sts arposc, r22		; keep r22 for later!
 	sts arposc + 1, r23
-	
+
 	; if (!(i >> 17)): break arp
 	mov r20, r17
 	lsr r20
@@ -273,7 +291,7 @@ noaddbass:
 	swap r30
 	andi r30, 3
 	subi r30, lo8(NULL-arptiming)
-	ld r20, Z
+	lpm r20, Z
 	
 	; if (!((r20 << ((i >> 9) & 7)) & 0x80)): break arp
 	mov r21, r18
@@ -324,7 +342,7 @@ noarp:
 	lsr r23
 	add r16, r23
 
-	out OCR0AL, r16
+	out OCR0A, r16
 	
 	cbi PORTB, 2
 	rjmp mainloop
@@ -392,13 +410,13 @@ getleaddata:
 	swap r30
 	andi r30, 0xF
 	subi r30, lo8(NULL-leadseq)
-	ld r30, Z
+	lpm r30, Z
 	swap r30
 	or r30, r23
 	
 	; data = leaddata[leadptr]
 	subi r30, lo8(NULL-leaddata)
-	ld r24, Z					; r24 = data!
+	lpm r24, Z					; r24 = data!
 	
 	; if (0 == leadtimer) {
 	com r25
@@ -411,7 +429,7 @@ getleaddata:
 		lsr r30
 		andi r30, 7
 		subi r30, lo8(NULL-leadtimes)
-		ld r27, Z
+		lpm r27, Z
 		st Y, r27
 	
 		; boosts |= boostmask
@@ -426,8 +444,8 @@ noleadupdate:
 	ldi r30, lo8(notes)
 	lsl r24
 	add r30, r24
-	ld r21, Z+
-	ld r20, Z
+	lpm r21, Z+
+	lpm r20, Z
 	
 	; leadosc += note
 	inc r28
@@ -469,9 +487,9 @@ skiplead:
 	.org 0x300
 	
 notes:
-	.word 	-1, 134, 159, 179, 201
+	.word 	-1, 112, 133, 149, 167
 arpnotes:
-	.word	213, 239, 268, 301, 319, 358, 401, 425, 451, 477, 536, 601, 637, 715
+	.word	177, 199, 223, 251, 265, 298, 335, 354, 375, 398, 447, 501, 531, 596
 	
 bassline:
 	.byte	14, 14, 18, 12, 14, 14, 20, 12, 14, 14, 18, 8, 10, 10, 4, 8
